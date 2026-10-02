@@ -138,7 +138,7 @@ public final class BubbleNotificationPrototype {
             return Icon.createWithAdaptiveBitmap(bmp);
         } catch (Exception e) {
             Log.w(TAG, "icon load failed for " + info.packageName, e);
-            return Icon.createWithResource(pm, info.packageName, info.icon);
+            return Icon.createWithResource(info.packageName, info.icon);
         }
     }
 }
