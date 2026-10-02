@@ -8,37 +8,31 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.ShortcutInfo;
-import android.content.pm.ShortcutManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.os.Build;
+import android.os.Handler;
 import android.os.UserHandle;
 import android.util.Log;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.stream.Collectors;
-
 /**
- * Local-test prototype: bubbles an arbitrary app through the public
- * Notification.BubbleMetadata API instead of the privileged
- * IBubbles.showAppBubble path (which SystemUI rejects without
- * MANAGE_ACTIVITY_TASKS — see issue #6802).
+ * Local-test prototype v6: bubble an arbitrary app via the public
+ * Notification.BubbleMetadata API without any shortcut.
  *
- * Posts a bubble notification per app: a dynamic shortcut (owned by
- * Lawnchair, required for bubbles on API 30+) whose intent launches the
- * target app, plus a notification carrying BubbleMetadata for that
- * shortcut. With the device's bubble-anything flag on, SystemUI should
- * surface the app in the real bubble bar.
+ * On devices with the wm.shell bubble-anything flag enabled (Pixel,
+ * Android 16/17), SystemUI is expected to accept shortcut-free bubble
+ * notifications carrying a mutable PendingIntent to the target app.
+ * Earlier variants attached dynamic shortcuts, but ShortcutService
+ * never registered them (dumpsys shortcut showed no records for the
+ * package) and NMS logged "added an invalid shortcut" on every post,
+ * so the shortcut machinery is dropped here.
  */
 public final class BubbleNotificationPrototype {
 
     private static final String TAG = "LcBubbleProto";
     private static final String CHANNEL_ID = "lc_app_bubbles_v2";
-    private static final String SHORTCUT_PREFIX = "lc_bubble_";
 
     private BubbleNotificationPrototype() {}
 
@@ -66,34 +60,12 @@ public final class BubbleNotificationPrototype {
             final CharSequence label = pm.getApplicationLabel(appInfo);
             final Icon appIcon = iconOf(pm, appInfo);
 
-            // Bubbles on notifications require a shortcut owned by the
-            // posting app (API 30+): one dynamic shortcut per bubbled app.
-            final String shortcutId = SHORTCUT_PREFIX + pkg;
-            final ShortcutManager sm = context.getSystemService(ShortcutManager.class);
-            if (sm != null) {
-                final List<ShortcutInfo> stale = sm.getDynamicShortcuts().stream()
-                        .filter(s -> s.getId().startsWith(SHORTCUT_PREFIX))
-                        .collect(Collectors.toList());
-                if (!stale.isEmpty()) {
-                    sm.removeDynamicShortcuts(
-                            stale.stream().map(ShortcutInfo::getId).collect(Collectors.toList()));
-                }
-                final ShortcutInfo shortcut = new ShortcutInfo.Builder(context, shortcutId)
-                        .setShortLabel(label)
-                        .setIntent(launch)
-                        .setIcon(appIcon)
-                        .build();
-                final boolean pushed = sm.addDynamicShortcuts(Collections.singletonList(shortcut));
-                Log.d(TAG, "dynamic shortcut for " + pkg + " pushed=" + pushed);
-            }
-
             final NotificationManager nm = context.getSystemService(NotificationManager.class);
             if (nm == null) {
                 return;
             }
-            final NotificationChannel channel =
-                    new NotificationChannel(CHANNEL_ID, "App bubbles", NotificationManager.IMPORTANCE_DEFAULT);
-            channel.setAllowBubbles(true);
+            final NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID, "App bubbles", NotificationManager.IMPORTANCE_DEFAULT);
             channel.setShowBadge(false);
             nm.createNotificationChannel(channel);
 
@@ -105,9 +77,8 @@ public final class BubbleNotificationPrototype {
                     launch,
                     PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
-            // No suppressNotification: the most compatible path — the
-            // notification posts silently (IMPORTANCE_MIN) and SystemUI
-            // derives the bubble from its BubbleMetadata.
+            // No shortcut: NMS only validates shortcuts when setShortcutId
+            // is present, and ShortcutService never registered ours.
             final Notification.BubbleMetadata meta =
                     new Notification.BubbleMetadata.Builder(pi, appIcon).build();
 
@@ -115,17 +86,15 @@ public final class BubbleNotificationPrototype {
                     new Notification.Builder(context, CHANNEL_ID)
                             .setSmallIcon(appIcon)
                             .setContentTitle(label)
-                            .setShortcutId(shortcutId)
                             .setBubbleMetadata(meta)
                             .build();
 
-            nm.notify(pkg, shortcutId.hashCode(), notification);
-            // Dynamic shortcut publication is async; NMS rejects bubbles
-            // whose shortcut hasn't landed yet ("invalid shortcut"). Re-post
-            // once after a beat so the bubble forms on the update.
-            new android.os.Handler(context.getMainLooper()).postDelayed(() -> {
+            nm.notify(pkg, pkg.hashCode(), notification);
+            // Re-post once after a beat: bubble processing can miss the
+            // first post while channel state settles.
+            new Handler(context.getMainLooper()).postDelayed(() -> {
                 try {
-                    nm.notify(pkg, shortcutId.hashCode(), notification);
+                    nm.notify(pkg, pkg.hashCode(), notification);
                     Log.d(TAG, "re-posted bubble notification for " + pkg);
                 } catch (Exception e) {
                     Log.e(TAG, "re-post failed for " + pkg, e);
@@ -133,7 +102,8 @@ public final class BubbleNotificationPrototype {
             }, 750L);
             Log.d(TAG, "posted bubble notification for " + pkg + " user=" + user
                     + " notificationsEnabled=" + nm.areNotificationsEnabled()
-                    + " bubblesAllowed=" + channel.canBubble());
+                    + " channelCanBubble=" + channel.canBubble()
+                    + (Build.VERSION.SDK_INT >= 31 ? " bubblesEnabled=" + nm.areBubblesEnabled() : ""));
         } catch (Exception e) {
             Log.e(TAG, "failed to post bubble notification", e);
         }
