@@ -97,11 +97,13 @@ public final class BubbleNotificationPrototype {
             channel.setShowBadge(false);
             nm.createNotificationChannel(channel);
 
+            // SystemUI requires bubble PendingIntents to be MUTABLE
+            // (NMS.checkDisqualifyingFeatures rejects immutable ones).
             final PendingIntent pi = PendingIntent.getActivity(
                     context,
                     pkg.hashCode(),
                     launch,
-                    PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+                    PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
             // No suppressNotification: the most compatible path — the
             // notification posts silently (IMPORTANCE_MIN) and SystemUI
@@ -118,6 +120,17 @@ public final class BubbleNotificationPrototype {
                             .build();
 
             nm.notify(pkg, shortcutId.hashCode(), notification);
+            // Dynamic shortcut publication is async; NMS rejects bubbles
+            // whose shortcut hasn't landed yet ("invalid shortcut"). Re-post
+            // once after a beat so the bubble forms on the update.
+            new android.os.Handler(context.getMainLooper()).postDelayed(() -> {
+                try {
+                    nm.notify(pkg, shortcutId.hashCode(), notification);
+                    Log.d(TAG, "re-posted bubble notification for " + pkg);
+                } catch (Exception e) {
+                    Log.e(TAG, "re-post failed for " + pkg, e);
+                }
+            }, 750L);
             Log.d(TAG, "posted bubble notification for " + pkg + " user=" + user
                     + " notificationsEnabled=" + nm.areNotificationsEnabled()
                     + " bubblesAllowed=" + channel.canBubble());
