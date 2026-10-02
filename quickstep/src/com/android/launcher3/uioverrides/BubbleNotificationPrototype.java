@@ -37,7 +37,7 @@ import java.util.stream.Collectors;
 public final class BubbleNotificationPrototype {
 
     private static final String TAG = "LcBubbleProto";
-    private static final String CHANNEL_ID = "lc_app_bubbles";
+    private static final String CHANNEL_ID = "lc_app_bubbles_v2";
     private static final String SHORTCUT_PREFIX = "lc_bubble_";
 
     private BubbleNotificationPrototype() {}
@@ -92,7 +92,7 @@ public final class BubbleNotificationPrototype {
                 return;
             }
             final NotificationChannel channel =
-                    new NotificationChannel(CHANNEL_ID, "App bubbles", NotificationManager.IMPORTANCE_MIN);
+                    new NotificationChannel(CHANNEL_ID, "App bubbles", NotificationManager.IMPORTANCE_DEFAULT);
             channel.setAllowBubbles(true);
             channel.setShowBadge(false);
             nm.createNotificationChannel(channel);
