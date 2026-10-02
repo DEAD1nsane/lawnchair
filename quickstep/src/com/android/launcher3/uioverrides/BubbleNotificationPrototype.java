@@ -18,21 +18,26 @@ import android.os.UserHandle;
 import android.util.Log;
 
 /**
- * Local-test prototype v6: bubble an arbitrary app via the public
- * Notification.BubbleMetadata API without any shortcut.
+ * Local-test prototype v7: bubble an arbitrary app through the public
+ * *conversation* bubble API.
  *
- * On devices with the wm.shell bubble-anything flag enabled (Pixel,
- * Android 16/17), SystemUI is expected to accept shortcut-free bubble
- * notifications carrying a mutable PendingIntent to the target app.
- * Earlier variants attached dynamic shortcuts, but ShortcutService
- * never registered them (dumpsys shortcut showed no records for the
- * package) and NMS logged "added an invalid shortcut" on every post,
- * so the shortcut machinery is dropped here.
+ * Pixels only expose the per-channel "Bubbles" user control for
+ * conversation channels (setConversationId + MessagingStyle) — the path
+ * chat apps use. Plain channels never get that control (verified on the
+ * test device: the plain channel exists in settings with no Bubbles row,
+ * and the app-side setAllowBubbles request is normalized away to
+ * UNDEFINED). So each bubbled app gets its own conversation channel;
+ * once the user sets Bubbles -> All bubbles on the conversation, the
+ * mutable-PendingIntent BubbleMetadata forms a real SystemUI bubble.
+ *
+ * The channel is IMPORTANCE_HIGH so posting gives immediate visible
+ * feedback (heads-up) even before bubbles are enabled.
  */
 public final class BubbleNotificationPrototype {
 
     private static final String TAG = "LcBubbleProto";
-    private static final String CHANNEL_ID = "lc_app_bubbles_v2";
+    private static final String PARENT_CHANNEL_ID = "lc_app_bubbles_parent";
+    private static final String CONV_PREFIX = "lc_bubble_conv_";
 
     private BubbleNotificationPrototype() {}
 
@@ -64,45 +69,62 @@ public final class BubbleNotificationPrototype {
             if (nm == null) {
                 return;
             }
-            final NotificationChannel channel = new NotificationChannel(
-                    CHANNEL_ID, "App bubbles", NotificationManager.IMPORTANCE_DEFAULT);
-            channel.setShowBadge(false);
-            nm.createNotificationChannel(channel);
 
-            // SystemUI requires bubble PendingIntents to be MUTABLE
-            // (NMS.checkDisqualifyingFeatures rejects immutable ones).
+            // Parent channel — setConversationId requires one.
+            final NotificationChannel parent = new NotificationChannel(
+                    PARENT_CHANNEL_ID, "App bubbles", NotificationManager.IMPORTANCE_DEFAULT);
+            parent.setShowBadge(false);
+            nm.createNotificationChannel(parent);
+
+            // Per-app conversation channel: the only channel type with a
+            // user-facing "Bubbles" control on Pixels.
+            final String convChannelId = CONV_PREFIX + pkg;
+            final NotificationChannel conv = new NotificationChannel(
+                    convChannelId, label + " bubbles", NotificationManager.IMPORTANCE_HIGH);
+            conv.setConversationId(PARENT_CHANNEL_ID, "lc_" + pkg);
+            conv.setShowBadge(false);
+            nm.createNotificationChannel(conv);
+
+            // SystemUI requires bubble PendingIntents to be MUTABLE.
             final PendingIntent pi = PendingIntent.getActivity(
                     context,
                     pkg.hashCode(),
                     launch,
                     PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
-            // No shortcut: NMS only validates shortcuts when setShortcutId
-            // is present, and ShortcutService never registered ours.
             final Notification.BubbleMetadata meta =
                     new Notification.BubbleMetadata.Builder(pi, appIcon).build();
 
+            final Notification.Person appPerson = new Notification.Person.Builder()
+                    .setName(label)
+                    .setIcon(appIcon)
+                    .build();
+            final Notification.MessagingStyle style =
+                    new Notification.MessagingStyle(appPerson)
+                            .addMessage(label, System.currentTimeMillis(), appPerson);
+
             final Notification notification =
-                    new Notification.Builder(context, CHANNEL_ID)
+                    new Notification.Builder(context, convChannelId)
                             .setSmallIcon(appIcon)
                             .setContentTitle(label)
+                            .setStyle(style)
+                            .setCategory(Notification.CATEGORY_CONVERSATION)
                             .setBubbleMetadata(meta)
                             .build();
 
             nm.notify(pkg, pkg.hashCode(), notification);
-            // Re-post once after a beat: bubble processing can miss the
-            // first post while channel state settles.
+            // Re-post once after a beat while channel state settles.
             new Handler(context.getMainLooper()).postDelayed(() -> {
                 try {
                     nm.notify(pkg, pkg.hashCode(), notification);
-                    Log.d(TAG, "re-posted bubble notification for " + pkg);
+                    Log.d(TAG, "re-posted conv bubble notification for " + pkg);
                 } catch (Exception e) {
                     Log.e(TAG, "re-post failed for " + pkg, e);
                 }
             }, 750L);
-            Log.d(TAG, "posted bubble notification for " + pkg + " user=" + user
+            Log.d(TAG, "posted conv bubble notification for " + pkg + " user=" + user
                     + " notificationsEnabled=" + nm.areNotificationsEnabled()
-                    + " channelCanBubble=" + channel.canBubble()
+                    + " convCanBubble=" + conv.canBubble()
                     + (Build.VERSION.SDK_INT >= 31 ? " bubblesEnabled=" + nm.areBubblesEnabled() : ""));
         } catch (Exception e) {
             Log.e(TAG, "failed to post bubble notification", e);
