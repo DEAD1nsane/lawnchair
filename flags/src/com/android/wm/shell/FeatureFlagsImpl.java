@@ -13,7 +13,7 @@ public final class FeatureFlagsImpl implements FeatureFlags {
 
 
     public boolean enableBubbleAnything() {
-        return false;
+        return true;
     }
 
     @Override
@@ -76,7 +76,7 @@ public final class FeatureFlagsImpl implements FeatureFlags {
 
 
     public boolean enableCreateAnyBubble() {
-        return false;
+        return true;
     }
 
     @Override
