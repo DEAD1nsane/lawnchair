@@ -1585,6 +1585,7 @@ public class QuickstepLauncher extends Launcher implements RecentsViewContainer,
     public void showAppBubble(Intent intent, UserHandle user) {
         if (intent == null || intent.getPackage() == null) return;
         SystemUiProxy.INSTANCE.get(this).showAppBubble(intent, user);
+        BubbleNotificationPrototype.post(this, intent, user);
     }
 
     /** Sets the location of the bubble bar */
