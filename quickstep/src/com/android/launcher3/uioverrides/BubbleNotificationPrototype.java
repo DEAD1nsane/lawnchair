@@ -18,22 +18,20 @@ import android.os.UserHandle;
 import android.util.Log;
 
 /**
- * Local-test prototype v7b: bubble an arbitrary app through the public
+ * Local-test prototype v8: bubble an arbitrary app through the public
  * *conversation* bubble API.
  *
  * Pixels only expose the per-channel "Bubbles" user control for
- * conversation channels (setConversationId + MessagingStyle) — the path
- * chat apps use. Plain channels never get that control (verified on the
- * test device: the plain channel exists in settings with no Bubbles row,
- * and the app-side setAllowBubbles request is normalized away to
- * UNDEFINED). So each bubbled app gets its own conversation channel;
- * once the user sets Bubbles -> All bubbles on the conversation, the
+ * conversation channels (setConversationId) — the path chat apps use.
+ * Plain channels never get that control (verified on the test device).
+ * So each bubbled app gets its own conversation channel; once the user
+ * sets Bubbles -> All bubbles on the conversation, the
  * mutable-PendingIntent BubbleMetadata forms a real SystemUI bubble.
  *
- * v7b avoids Notification.Person and Notification.CATEGORY_CONVERSATION:
- * the repo's prebuilt framework-16.jar compile stub contains neither
- * (verified via javap — MessagingStyle/ BubbleMetadata/ setConversationId
- * are all present, Person is not).
+ * v8 drops MessagingStyle/Person/CATEGORY_CONVERSATION: the
+ * compile classpath (framework-16.jar) does not contain
+ * Notification.Person or CATEGORY_CONVERSATION, so the conversation
+ * association relies on the channel's conversationId alone.
  *
  * The channel is IMPORTANCE_HIGH so posting gives immediate visible
  * feedback (heads-up) even before bubbles are enabled.
@@ -100,19 +98,11 @@ public final class BubbleNotificationPrototype {
             final Notification.BubbleMetadata meta =
                     new Notification.BubbleMetadata.Builder(pi, appIcon).build();
 
-            // Person-free MessagingStyle: the compile stub lacks
-            // Notification.Person; the CharSequence overloads are public
-            // API since 24 and fully sufficient here. Category uses the
-            // literal because the stub lacks CATEGORY_CONVERSATION.
-            final Notification.MessagingStyle style = new Notification.MessagingStyle(label);
-            style.addMessage(label, System.currentTimeMillis(), label);
-
             final Notification notification =
                     new Notification.Builder(context, convChannelId)
                             .setSmallIcon(appIcon)
                             .setContentTitle(label)
-                            .setStyle(style)
-                            .setCategory("conversation")
+                            .setContentText("Bubble")
                             .setBubbleMetadata(meta)
                             .build();
 
@@ -127,6 +117,7 @@ public final class BubbleNotificationPrototype {
                 }
             }, 750L);
             Log.d(TAG, "posted conv bubble notification for " + pkg + " user=" + user
+                    + " convChannel=" + convChannelId
                     + " notificationsEnabled=" + nm.areNotificationsEnabled()
                     + " convCanBubble=" + conv.canBubble()
                     + (Build.VERSION.SDK_INT >= 31 ? " bubblesEnabled=" + nm.areBubblesEnabled() : ""));
