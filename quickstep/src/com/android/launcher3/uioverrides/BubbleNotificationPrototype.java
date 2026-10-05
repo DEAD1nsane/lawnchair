@@ -18,7 +18,7 @@ import android.os.UserHandle;
 import android.util.Log;
 
 /**
- * Local-test prototype v7: bubble an arbitrary app through the public
+ * Local-test prototype v7b: bubble an arbitrary app through the public
  * *conversation* bubble API.
  *
  * Pixels only expose the per-channel "Bubbles" user control for
@@ -29,6 +29,11 @@ import android.util.Log;
  * UNDEFINED). So each bubbled app gets its own conversation channel;
  * once the user sets Bubbles -> All bubbles on the conversation, the
  * mutable-PendingIntent BubbleMetadata forms a real SystemUI bubble.
+ *
+ * v7b avoids Notification.Person and Notification.CATEGORY_CONVERSATION:
+ * the repo's prebuilt framework-16.jar compile stub contains neither
+ * (verified via javap — MessagingStyle/ BubbleMetadata/ setConversationId
+ * are all present, Person is not).
  *
  * The channel is IMPORTANCE_HIGH so posting gives immediate visible
  * feedback (heads-up) even before bubbles are enabled.
@@ -95,20 +100,19 @@ public final class BubbleNotificationPrototype {
             final Notification.BubbleMetadata meta =
                     new Notification.BubbleMetadata.Builder(pi, appIcon).build();
 
-            final Notification.Person appPerson = new Notification.Person.Builder()
-                    .setName(label)
-                    .setIcon(appIcon)
-                    .build();
-            final Notification.MessagingStyle style =
-                    new Notification.MessagingStyle(appPerson)
-                            .addMessage(label, System.currentTimeMillis(), appPerson);
+            // Person-free MessagingStyle: the compile stub lacks
+            // Notification.Person; the CharSequence overloads are public
+            // API since 24 and fully sufficient here. Category uses the
+            // literal because the stub lacks CATEGORY_CONVERSATION.
+            final Notification.MessagingStyle style = new Notification.MessagingStyle(label);
+            style.addMessage(label, System.currentTimeMillis(), label);
 
             final Notification notification =
                     new Notification.Builder(context, convChannelId)
                             .setSmallIcon(appIcon)
                             .setContentTitle(label)
                             .setStyle(style)
-                            .setCategory(Notification.CATEGORY_CONVERSATION)
+                            .setCategory("conversation")
                             .setBubbleMetadata(meta)
                             .build();
 
